@@ -51,7 +51,7 @@ video{width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin-top
 <main id="v"></main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script>
-var K='tabour_v1',S,tab='gate',per=7,last=null,stream=null,scanT=null;
+var K='tabour_v1',Q=new URLSearchParams(location.search),PM=!!(Q.get('t')&&Q.get('api')),S,tab='gate',per=7,last=null,stream=null,scanT=null;
 var TABS=[['gate','البوابة'],['rank','الترتيب'],['parent','ولي الأمر'],['cards','البطاقات'],['set','الإعدادات']];
 function iso(d){var m=d.getMonth()+1,x=d.getDate();return d.getFullYear()+'-'+(m<10?'0':'')+m+'-'+(x<10?'0':'')+x}
 function seed(){
@@ -67,9 +67,21 @@ function seed(){
 }
 function pad(n){return(n<10?'0':'')+n}
 try{var r=localStorage.getItem(K);S=r?JSON.parse(r):seed()}catch(e){S=seed()}
-function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+function save(){if(PM)return;try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
 (function(){if(!S.cfg)S.cfg={gap:true,rapid:true,face:false};if(!find('9999')){S.students.push({id:'9999',name:'تجربة (أنا)',cls:'اختبار',bus:false});save()}})();
 function tg(k){S.cfg[k]=!S.cfg[k];save();draw()}
+function toRec(a){var o={};a.forEach(function(r){(o[r[0]]=o[r[0]]||{})[r[1]]=r[2]});return o}
+function api(q){return fetch(S.cfg.api+'?key='+encodeURIComponent(S.cfg.key)+'&'+q).then(function(r){return r.json()})}
+function stat(m){var e=document.getElementById('sst');if(e)e.textContent=m}
+function sync(){
+  if(PM||!S.cfg.api||!S.cfg.key)return;
+  var p=(S.q||[]).reduce(function(pr,x){return pr.then(function(){return api('action=record&id='+x[1]+'&date='+x[0]+'&time='+x[2]).then(function(d){if(d.err)throw 0})})},Promise.resolve());
+  p.then(function(){S.q=[];return api('action=data')}).then(function(d){
+    if(d.err){stat('السر غير صحيح');return}
+    S.students=d.students;S.rec=toRec(d.rec);save();stat('متصل ✅ '+new Date().toLocaleTimeString());if(tab=='rank')draw()
+  }).catch(function(){stat('لا يوجد اتصال، سيُرسل لاحقاً')})
+}
+function pmLoad(){fetch(Q.get('api')+'?action=parent&t='+encodeURIComponent(Q.get('t'))).then(function(r){return r.json()}).then(function(d){if(d.err){document.getElementById('v').innerHTML='<div class="msg bad">رابط غير صحيح</div>';return}S={students:d.students,rec:toRec(d.rec),cfg:{}};window.pidv=d.me;tab='parent';draw()}).catch(function(){document.getElementById('v').innerHTML='<div class="msg bad">تعذّر التحميل، اضغط تحديث</div>'})}
 function faceOk(){var v=document.getElementById('vid');if(!('FaceDetector' in window)||!stream||!v||v.readyState<2)return Promise.resolve(true);return new FaceDetector().detect(v).then(function(f){return f.length>0}).catch(function(){return true})}
 function reg(id){if(S.cfg.face)return faceOk().then(function(ok){if(ok)reg2(id);else{last={bad:1,t:'لا يظهر وجه أمام الكاميرا',sub:'قرّب وجهك مع البطاقة'};beep(0);draw()}});reg2(id)}
 function pts(t){return t<'06:30:00'?3:(t<='06:45:59'?2:0)}
@@ -83,7 +95,7 @@ function reg2(id){
   var n=Date.now();if(S.cfg.gap&&n-(window.lastScan||0)<3000){last={bad:1,t:'انتظر ٣ ثوانٍ ⏳',sub:'مسح سريع متتالٍ'};window.gapHit=true;if(!window.gapShown){window.gapShown=1;draw()}return}
   window.gapShown=0;window.lastScan=n;window.scans=(window.scans||[]).filter(function(x){return n-x<10000});window.scans.push(n);
   var fl=S.cfg.rapid&&window.scans.length>=3;
-  var t=now();S.rec[today][s.id]=t;if(fl){S.flags=S.flags||{};(S.flags[today]=S.flags[today]||[]).push(s.id)}save();var p=pts(t);
+  var t=now();S.rec[today][s.id]=t;if(fl){S.flags=S.flags||{};(S.flags[today]=S.flags[today]||[]).push(s.id)}if(S.cfg.api){S.q=S.q||[];S.q.push([today,s.id,t])}save();var p=pts(t);if(S.cfg.api)sync();
   last={ok:p>0,bad:p==0,t:'صباح الخير '+s.name.split(' ')[0]+(p>0?' ✅':''),sub:t.slice(0,5)+' · '+(p>0?'+'+p+' نقاط':'بعد الطابور — تأخر')+(fl?' ⚠️ تحقق من الطابور':'')};
   beep(p>0);draw()
 }
@@ -98,7 +110,7 @@ function board(n){
 }
 function fm(m){return m>900?'—':pad(Math.floor(m/60))+':'+pad(Math.round(m%60))}
 function draw(){
-  document.getElementById('nav').innerHTML=TABS.map(function(t){return'<button class="'+(t[0]==tab?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('');
+  document.getElementById('nav').innerHTML=PM?'':TABS.map(function(t){return'<button class="'+(t[0]==tab?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join('');
   var h='',v=document.getElementById('v');
   if(tab=='gate'){
     var today=S.rec[iso(new Date())]||{},ids=Object.keys(today).sort(function(a,b){return today[b]<today[a]?1:-1});
@@ -117,7 +129,7 @@ function draw(){
   }
   if(tab=='parent'){
     h='<div class="c"><b>بوابة ولي الأمر</b><input id="pid" inputmode="numeric" placeholder="رقم الطالب، مثل 1001" value="'+(window.pidv||'')+'"><button class="b" onclick="window.pidv=document.getElementById(\'pid\').value;draw()">عرض</button><p class="note">في النسخة الحقيقية يستلم كل ولي أمر رابطاً خاصاً بابنه دون كتابة رقم.</p></div>';
-    var s=window.pidv&&find(window.pidv);
+    if(PM)h='';var s=window.pidv&&find(window.pidv);
     if(s){
       var w=board(7),m=board(30),rw=w.filter(function(r){return r.s.id==s.id})[0],rm=m.filter(function(r){return r.s.id==s.id})[0],ds=Object.keys(S.rec).sort().reverse().slice(0,10);
       h+='<div class="c"><b>'+s.name+'</b> <span class="note">'+s.cls+(s.bus?' · باص':'')+'</span>'+
@@ -132,6 +144,7 @@ function draw(){
   if(tab=='set'){var C=S.cfg,fs='FaceDetector' in window;
     var row=function(k,t,d,dis){return'<div class="row"><div class="gr"><b>'+t+'</b><span>'+d+'</span></div><input type="checkbox" style="width:24px;height:24px" '+(C[k]?'checked ':'')+(dis?'disabled ':'')+'onchange="tg(\''+k+'\')"></div>'};
     h='<div class="c"><b>إجراءات منع الغش</b>'+row('gap','فاصل ٣ ثوانٍ بين المسحات','يرفض أي مسح قبل مرور ٣ ثوانٍ')+row('rapid','تنبيه المسحات المتتالية','٣ بطاقات خلال ١٠ ثوانٍ تظهر ⚠️ للمشرف')+row('face','التأكد من وجود وجه','يتطلب تشغيل الكاميرا الأمامية · '+(fs?'مدعوم في هذا الجوال':'غير مدعوم في هذا الجوال'),!fs)+row('photo','عرض صورة الطالب','قريباً — بعد جمع الصور',1)+'</div><p class="note">يمكن تفعيل أي خيار أو إلغاؤه في أي وقت. الطالب «تجربة (أنا)» رقمه 9999 لتجربتك الشخصية، وبطاقته في تبويب البطاقات.</p>'}
+  if(tab=='set')h+='<div class="c"><b>ربط الجدول (Google Sheets)</b><p class="note">الصق رابط /exec والسر ثم اضغط حفظ ومزامنة.</p><input id="api" placeholder="رابط /exec" value="'+(S.cfg.api||'')+'"><input id="key" placeholder="السر" style="margin-top:8px" value="'+(S.cfg.key||'')+'"><button class="b" onclick="S.cfg.api=document.getElementById(\'api\').value.trim();S.cfg.key=document.getElementById(\'key\').value.trim();save();sync()">حفظ ومزامنة</button><p id="sst" class="note"></p></div>';
   v.innerHTML=h;
   if(stream&&tab=='gate'){var vv=document.getElementById('vid');if(vv){vv.srcObject=stream;vv.style.display='block';vv.play()}}
 }
@@ -151,7 +164,7 @@ async function cam(){
     scanT=setInterval(async function(){try{var vv=document.getElementById('vid');if(!vv||vv.readyState<2)return;var r=await det.detect(vv);if(r.length){var c=r[0].rawValue,n=Date.now();if(c!=lastc||n-lt>8000){window.gapHit=false;reg(c);if(!window.gapHit){lastc=c;lt=n}}}}catch(e){}},400)
   }catch(e){clearTimeout(to);cm.textContent='تعذّر تشغيل الكاميرا. تأكد من السماح بالوصول، أو أدخل الرقم يدوياً.'}
 }
-draw();
+if(PM){document.getElementById('v').innerHTML='<p class="note">جارٍ التحميل…</p>';pmLoad()}else{draw();sync();setInterval(sync,30000)}
 </script>
 </body>
 </html>
